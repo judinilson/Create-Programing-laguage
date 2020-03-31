@@ -5,14 +5,14 @@
 from string_with_arrows import *
 
 #######################
-# CONSTANTS
+# TODO: CONSTANTS
 #######################
 
 DIGITS = '0123456789'
 
 
 #######################
-# ERROR
+# TODO: ERROR
 ######################
 
 class Error:
@@ -37,6 +37,30 @@ class IllegalCharError(Error):  # this class inherit Error class by passing it i
 class InvalidSyntaxError(Error):
     def __init__(self, pos_start, pos_end, details=''):
         super().__init__(pos_start, pos_end, 'Invalid Syntax', details)
+
+
+class RTError(Error):
+    def __init__(self, pos_start, pos_end, details, context):
+        super().__init__(pos_start, pos_end, 'Runtime error', details)
+        self.context = context
+
+    def as_string(self):
+        result = self.generate_traceback()  # this mean to go back in level of function call
+        result += f'{self.error_name},line {self.details}'
+        result += '\n\n' + string_with_arrows(self.pos_start.ftxt, self.pos_start, self.pos_end)
+        return result
+
+    def generate_traceback(self):
+        result = ''
+        pos = self.pos_start
+        ctx = self.context
+
+        while ctx:
+            result = f'File {pos.fn}, line {str(pos.ln + 1)}, in {ctx.display_name}\n ' + result
+            pos = ctx.parent_entry_pos
+            ctx = ctx.parent
+
+        return 'Traceback (most recent call last): \n' + result
 
 
 #######################
@@ -99,7 +123,7 @@ class Token:
 
 
 #################################
-# LEXER
+# TODO: LEXER
 ################################
 
 class Lexer:
@@ -124,22 +148,22 @@ class Lexer:
             elif self.current_char in DIGITS:
                 tokens.append(self.make_number())
             elif self.current_char == '+':
-                tokens.append(Token(TT_PLUS,pos_start=self.pos))
+                tokens.append(Token(TT_PLUS, pos_start=self.pos))
                 self.advance()
             elif self.current_char == '-':
-                tokens.append(Token(TT_MINUS,pos_start=self.pos))
+                tokens.append(Token(TT_MINUS, pos_start=self.pos))
                 self.advance()
             elif self.current_char == '*':
-                tokens.append(Token(TT_MUL,pos_start=self.pos))
+                tokens.append(Token(TT_MUL, pos_start=self.pos))
                 self.advance()
             elif self.current_char == '/':
-                tokens.append(Token(TT_DIV,pos_start=self.pos))
+                tokens.append(Token(TT_DIV, pos_start=self.pos))
                 self.advance()
             elif self.current_char == '(':
-                tokens.append(Token(TT_LPAREN,pos_start=self.pos))
+                tokens.append(Token(TT_LPAREN, pos_start=self.pos))
                 self.advance()
             elif self.current_char == ')':
-                tokens.append(Token(TT_RPAREN,pos_start=self.pos))
+                tokens.append(Token(TT_RPAREN, pos_start=self.pos))
                 self.advance()
             else:
                 pos_start = self.pos.copy()
@@ -147,7 +171,7 @@ class Lexer:
                 self.advance()
                 return [], IllegalCharError(pos_start, self.pos, "'" + char + "'")
 
-        tokens.append(Token(TT_EOF,pos_start=self.pos))
+        tokens.append(Token(TT_EOF, pos_start=self.pos))
         return tokens, None  # to return token instead return none
 
     def make_number(self):
@@ -165,44 +189,53 @@ class Lexer:
             self.advance()
 
         if dot_count == 0:
-            return Token(TT_INT, int(num_str),pos_start,self.pos)  # if dot equal to 0 them convert num_str to int
+            return Token(TT_INT, int(num_str), pos_start, self.pos)  # if dot equal to 0 them convert num_str to int
         else:
-            return Token(TT_FLOAT, float(num_str),pos_start,self.pos)
+            return Token(TT_FLOAT, float(num_str), pos_start, self.pos)
 
 
 #####################
-# NODES
+# TODO: NODES
 #####################
 
 class NumberNode:
     def __init__(self, tok):
         self.tok = tok
 
+        self.pos_start = self.tok.pos_start
+        self.pos_end = self.tok.pos_end
+
     def __repr__(self):
         return f'{self.tok}'
 
 
-class BinOpNode:
+class BinOpNode:  # this class is the one responsable for operations as (4+3)binary operation
     def __init__(self, left_node, op_tok, right_node):
         self.left_node = left_node
         self.op_tok = op_tok
         self.right_node = right_node
+
+        self.pos_start = self.left_node.pos_start
+        self.pos_end = self.right_node.pos_end
 
     def __repr__(self):
         return f'({self.left_node}, {self.op_tok}, {self.right_node})'
 
 
 class UnaryOpNode:
-    def __init__(self,op_tok,node):
+    def __init__(self, op_tok, node):
         self.op_tok = op_tok
         self.node = node
+
+        self.pos_start = self.op_tok.pos_start
+        self.pos_end = node.pos_end
 
     def __repr__(self):
         return f'({self.op_tok}, {self.node})'
 
 
 #####################
-# PARSER RESULT
+# TODO: PARSER RESULT
 #####################
 class ParseResult:
     def __init__(self):
@@ -215,16 +248,17 @@ class ParseResult:
             return res.node
         return res
 
-    def success(self,node):
+    def success(self, node):
         self.node = node
         return self
 
-    def failure(self,error):
+    def failure(self, error):
         self.error = error
         return self
 
+
 ######################
-# PARSER
+# TODO: PARSER
 #####################
 
 class Parser:
@@ -254,30 +288,30 @@ class Parser:
         res = ParseResult()
         tok = self.current_tok
 
-        if tok.type in (TT_PLUS,TT_MINUS):
+        if tok.type in (TT_PLUS, TT_MINUS):
             res.register(self.advance())
             factor = res.register(self.factor())  # call factor recursively
             if res.error: return res
-            return res.success(UnaryOpNode(tok,factor))
+            return res.success(UnaryOpNode(tok, factor))
 
         elif tok.type in (TT_INT, TT_FLOAT):
             res.register(self.advance())
             return res.success(NumberNode(tok))
 
-        elif tok.type == TT_LPAREN: # verifying if is left parenthese
+        elif tok.type == TT_LPAREN:  # verifying if is left parenthese
             res.register(self.advance())
             expr = res.register(self.expr())
             if res.error: return res
-            if self.current_tok.type == TT_RPAREN: # verifying if is right parenthese
+            if self.current_tok.type == TT_RPAREN:  # verifying if is right parenthese
                 res.register(self.advance())
                 return res.success(expr)
             else:  # if not parenthese on right call failure invalid syntax
                 return res.failure(InvalidSyntaxError(
-                    self.current_tok.pos_start, self.current_tok.pos_end,"Expected ')'"
+                    self.current_tok.pos_start, self.current_tok.pos_end, "Expected ')'"
                 ))
 
         return res.failure(InvalidSyntaxError(
-            tok.pos_start, tok.pos_end,"Expected int or float"
+            tok.pos_start, tok.pos_end, "Expected int or float"
         ))
 
     def term(self):
@@ -301,7 +335,148 @@ class Parser:
 
 
 ######################
-# RUN
+# TODO: RUNTIME RESULT
+######################
+
+class RTResult:
+    def __init__(self):
+        self.value = None
+        self.error = None
+
+    def register(self, res):
+        if res.error: self.error = res.error
+        return res.value
+
+    def success(self, value):
+        self.value = value
+        return self
+
+    def failure(self, error):
+        self.error = error
+        return self
+
+
+######################
+# TODO: VALUES(NUMBER)
+######################
+
+class Number:  # storing number class
+    def __init__(self, value):
+        self.value = value
+        self.set_pos()
+        self.set_context()
+
+    def set_pos(self, pos_start=None, pos_end=None):
+        self.pos_start = pos_start
+        self.pos_end = pos_end
+        return self
+
+    def set_context(self, context=None):
+        self.context = context
+        return self
+
+    def added_to(self, other):
+        # Return true if the object argument is an instance of the classinfo
+        # argument, or of a (direct, indirect or virtual) subclass thereof
+        if isinstance(other, Number):
+            return Number(self.value + other.value).set_context(self.context), None
+
+    def subbed_by(self, other):
+        if isinstance(other, Number):
+            return Number(self.value - other.value).set_context(self.context), None
+
+    def multed_by(self, other):
+        if isinstance(other, Number):
+            return Number(self.value * other.value).set_context(self.context), None
+
+    def dived_by(self, other):
+        if isinstance(other, Number):
+            if other.value == 0:
+                return None, RTError(  # passing the runtime error type nd details
+                    other.pos_start, other.pos_end,
+                    'Division by zero',
+                    self.context
+                )
+            return Number(self.value / other.value).set_context(self.context), None
+
+    def __repr__(self):
+        return str(self.value)  # convert to string
+
+
+######################
+# TODO: CONTEXT
+#####################
+
+class Context:  # to specify where the error is by showing the function in traceback mode
+    def __init__(self, display_name, parent=None, parent_entry_pos=None):
+        self.display_name = display_name
+        self.parent = parent
+        self.parent_entry_pos = parent_entry_pos
+
+
+######################
+# TODO: INTERPRETER
+#####################
+
+class Interpreter:
+    def visit(self, node, context):  # this method gone to process that node and visit all child node
+        method_name = f'visit_{type(node).__name__}'  # this will automatic create method name base on is type
+        method = getattr(self, method_name,
+                         self.no_visit_method)  # get method (if not method is found it return the given method
+        return method(node, context)
+
+    def no_visit_method(self, node, context):
+        raise Exception(f'No visit_{type(node).__name__} method defined')
+
+    ######################################
+
+    def visit_NumberNode(self, node, context):
+        return RTResult().success(
+            Number(node.tok.value).set_context(context).set_pos(node.pos_start, node.pos_end)
+        )
+
+    def visit_BinOpNode(self, node, context):
+        res = RTResult()
+        left = res.register(self.visit(node.left_node, context))
+        if res.error: return res
+        right = res.register(self.visit(node.right_node, context))
+        if res.error: return res
+
+        if node.op_tok.type == TT_PLUS:
+            result, error = left.added_to(right)
+        elif node.op_tok.type == TT_MINUS:
+            result, error = left.subbed_by(right)
+        elif node.op_tok.type == TT_MUL:
+            result, error = left.multed_by(right)
+        elif node.op_tok.type == TT_DIV:
+            result, error = left.dived_by(right)
+
+        if error:
+            return res.failure(error)
+        else:
+            return res.success(result.set_pos(node.pos_start, node.pos_end))
+
+    def visit_UnaryOpNode(self, node, context):
+        res = RTResult()
+        number = res.register(self.visit(node.node, context))  # child node
+        if res.error: return res
+
+        error = None
+
+        if node.op_tok.type == TT_MINUS:
+            number, error = number.multed_by(Number(-1))
+
+        if error:
+            return res.failure(error)
+        else:
+            return res.success(number.set_pos(node.pos_start, node.pos_end))
+
+
+#######################################
+
+
+######################
+# TODO: RUN
 #####################
 
 def run(fn, text):
@@ -313,5 +488,11 @@ def run(fn, text):
     # Generate AST (abstract syntax tree)
     parser = Parser(tokens)
     ast = parser.parse()
+    if ast.error: return None, ast.error
 
-    return ast.node, ast.error
+    # Run program
+    interpreter = Interpreter()
+    context = Context('<program>')
+    result = interpreter.visit(ast.node, context)
+
+    return result.value, result.error
