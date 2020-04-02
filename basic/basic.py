@@ -2,6 +2,8 @@
 # IMPORTS
 #######################
 
+import string
+
 from string_with_arrows import *
 
 #######################
@@ -9,6 +11,8 @@ from string_with_arrows import *
 #######################
 
 DIGITS = '0123456789'
+LETTERS = string.ascii_letters
+LETTERS_DIGITS = LETTERS + DIGITS
 
 
 #######################
@@ -92,17 +96,31 @@ class Position:
 #######################
 # TODO: TOKENS
 #######################
-
+# types
 TT_INT = 'TT_INT'
 TT_FLOAT = 'FLOAT'
+
+# operations
 TT_PLUS = 'PLUS'
 TT_MINUS = 'MINUS'
 TT_MUL = 'MUL'
 TT_DIV = 'DIV'
 TT_POW = 'POW'
+
+# parentheses
 TT_LPAREN = 'LPAREN'
 TT_RPAREN = 'RPAREN'
+
+# exception
 TT_EOF = 'EOFP'
+
+# variables
+TT_IDENTIFIER = 'IDENTIFIER'
+TT_EQ = 'EQUAL'
+TT_KEYWORD = 'KEYWORD'
+KEYWORDS = [
+    'VAR'
+]
 
 
 class Token:
@@ -117,6 +135,9 @@ class Token:
 
         if pos_end:
             self.pos_end = pos_end
+
+    def matches(self, type_, value):  # to verify if token matches with given type
+        return self.type == type_ and self.value == value
 
     def __repr__(self):  # representation method to represent when it printed out
         if self.value: return f'{self.type}:{self.value}'  # if token has the value will print type:value
@@ -148,6 +169,8 @@ class Lexer:
                 self.advance()
             elif self.current_char in DIGITS:
                 tokens.append(self.make_number())
+            elif self.current_char in LETTERS:
+                tokens.append(self.make_identifier())
             elif self.current_char == '+':
                 tokens.append(Token(TT_PLUS, pos_start=self.pos))
                 self.advance()
@@ -162,6 +185,9 @@ class Lexer:
                 self.advance()
             elif self.current_char == '^':
                 tokens.append(Token(TT_POW, pos_start=self.pos))
+                self.advance()
+            elif self.current_char == '=':
+                tokens.append(Token(TT_EQ, pos_start=self.pos))
                 self.advance()
             elif self.current_char == '(':
                 tokens.append(Token(TT_LPAREN, pos_start=self.pos))
@@ -197,6 +223,16 @@ class Lexer:
         else:
             return Token(TT_FLOAT, float(num_str), pos_start, self.pos)
 
+    def make_identifier(self):  # method to detect if is variable keyword or identifier
+        id_str = ''
+        pos_start = self.pos.copy()
+
+        while self.current_char is not None and self.current_char in LETTERS_DIGITS + '_':
+            id_str += self.current_char
+            self.advance()
+        tok_type = TT_KEYWORD if id_str in KEYWORDS else TT_IDENTIFIER
+        return Token(tok_type, id_str, pos_start, self.pos)
+
 
 #####################
 # TODO: NODES
@@ -211,6 +247,23 @@ class NumberNode:
 
     def __repr__(self):
         return f'{self.tok}'
+
+
+class VarAccessNode:
+    def __init__(self, var_name_tok):
+        self.var_name_tok = var_name_tok
+
+        self.pos_start = self.var_name_tok.pos_start
+        self.pos_end = self.var_name_tok.pos_end
+
+
+class VarAssignNode:
+    def __init__(self, var_name_tok, value_node):
+        self.var_name_tok = var_name_tok
+        self.value_node = value_node
+
+        self.pos_start = self.var_name_tok.pos_start
+        self.pos_end = self.value_node.pos_end
 
 
 class BinOpNode:  # this class is the one responsable for operations as (4+3)binary operation
@@ -296,6 +349,9 @@ class Parser:
         if tok.type in (TT_INT, TT_FLOAT):
             res.register(self.advance())
             return res.success(NumberNode(tok))
+        elif tok.type == TT_IDENTIFIER:  # verifying if is var_name(identifier)
+            res.register(self.advance())
+            return res.success(VarAccessNode(tok))
         elif tok.type == TT_LPAREN:  # verifying if is left parenthese
             res.register(self.advance())
             expr = res.register(self.expr())
@@ -331,6 +387,36 @@ class Parser:
         return self.bin_op(self.factor, (TT_MUL, TT_DIV))
 
     def expr(self):
+        res = ParseResult()
+        if self.current_tok.matches(TT_KEYWORD, 'VAR'):  # locking for the new role if var match to keyword
+            res.register(self.advance())
+
+            # locking for identifier that is variable name
+            if self.current_tok.type is not TT_IDENTIFIER:
+                return res.failure(InvalidSyntaxError(
+                    self.current_tok.pos_start, self.current_tok.pos_end,
+                    "Expected identifier"
+                ))
+            # but if is identifier
+            var_name = self.current_tok
+            res.register(self.advance())
+
+            # locking for equal
+            if self.current_tok.type is not TT_EQ:
+                return res.failure(InvalidSyntaxError(
+                    self.current_tok.pos_start, self.current_tok.pos_end,
+                    "Expected '='"
+                ))
+
+            # but if it's equal
+            res.register(self.advance())
+            # assign expr to the new expr
+            expr = res.register(self.expr())
+            if res.error: return res
+            # but if its success we gonna return var node
+            return res.success(VarAssignNode(var_name, expr))
+
+        # but if is not a variable its return bin operation
         return self.bin_op(self.term, (TT_PLUS, TT_MINUS))
 
     def bin_op(self, func_a, ops, func_b=None):
@@ -432,6 +518,34 @@ class Context:  # to specify where the error is by showing the function in trace
         self.display_name = display_name
         self.parent = parent
         self.parent_entry_pos = parent_entry_pos
+        self.symbol_table = None
+
+
+######################
+# TODO: SYMBOL TABLE
+#####################
+
+# this class is to keep track all var names and their values
+class SymbolTable:
+    def __init__(self):
+        self.symbols = {}  # symbol dictionary
+        self.parent = None
+
+    # get variable name
+    def get(self, name):
+        value = self.symbols.get(name,
+                                 None)  # take variable name and if cannot find it in dictionary take none
+        # if the value is none we go to the parent symbol table nd check each symb for the value
+        if value is None and self.parent:
+            # if those hve a parent
+            return self.parent.get(name)
+        return value
+
+    def set(self, name, value):  # set name in symbol tble
+        self.symbols[name] = value
+
+    def remove(self, name):
+        del self.symbols[name]
 
 
 ######################
@@ -454,6 +568,28 @@ class Interpreter:
         return RTResult().success(
             Number(node.tok.value).set_context(context).set_pos(node.pos_start, node.pos_end)
         )
+
+    def visit_VarAccessNode(self, node, context):
+        res = RTResult()
+        var_name = node.var_name_tok.value
+        value = context.symbol_table.get(var_name)
+
+        if not value:
+            return res.failure(RTError(
+                node.pos_start, node.pos_end,
+                f"'{var_name}' is not defined",
+                context
+            ))
+        return res.success(value)
+
+    def visit_VarAssignNode(self, node, context):
+        res = RTResult()
+        var_name = node.var_name_tok.value
+        value = res.register(self.visit(node.value_node, context))
+        if res.error: return res
+
+        context.symbol_table.set(var_name, value)
+        return res.success(value)
 
     def visit_BinOpNode(self, node, context):
         res = RTResult()
@@ -501,6 +637,11 @@ class Interpreter:
 # TODO: RUN
 #####################
 
+# create global symbol table
+global_symbol_table = SymbolTable()
+global_symbol_table.set("null", Number(0))
+
+
 def run(fn, text):
     # Generate tokens
     lexer = Lexer(fn, text)
@@ -515,6 +656,8 @@ def run(fn, text):
     # Run program
     interpreter = Interpreter()
     context = Context('<program>')
+    # assign global symbol tbl to context.symbol_table given the proper access
+    context.symbol_table = global_symbol_table
     result = interpreter.visit(ast.node, context)
 
     return result.value, result.error
