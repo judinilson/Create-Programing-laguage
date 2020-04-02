@@ -136,7 +136,11 @@ KEYWORDS = [
     'LET',
     'AND',
     'OR',
-    'NOT'
+    'NOT',
+    'IF',
+    'THEN',
+    'ELIF',
+    'ELSE'
 ]
 
 
@@ -181,7 +185,7 @@ class Lexer:
     def make_tokens(self):
         tokens = []
 
-        while self.current_char is not None:
+        while self.current_char != None:
             if self.current_char in ' \t':
                 self.advance()
             elif self.current_char in DIGITS:
@@ -210,9 +214,9 @@ class Lexer:
                 tokens.append(Token(TT_RPAREN, pos_start=self.pos))
                 self.advance()
             elif self.current_char == '!':
-                tok, error = self.make_not_equals()
+                token, error = self.make_not_equals()
                 if error: return [], error
-                tokens.append(tok)
+                tokens.append(token)
             elif self.current_char == '=':
                 tokens.append(self.make_equals())
             elif self.current_char == '<':
@@ -334,7 +338,7 @@ class VarAssignNode:
         self.pos_end = self.value_node.pos_end
 
 
-class BinOpNode:  # this class is the one responsable for operations as (4+3)binary operation
+class BinOpNode:
     def __init__(self, left_node, op_tok, right_node):
         self.left_node = left_node
         self.op_tok = op_tok
@@ -357,6 +361,16 @@ class UnaryOpNode:
 
     def __repr__(self):
         return f'({self.op_tok}, {self.node})'
+
+
+class IfNode:
+    def __init__(self, cases, else_case):
+        self.cases = cases
+        self.else_case = else_case
+
+        self.pos_start = self.cases[0][0].pos_start
+        # geting position end from else case if exist otherwise get last element in cases list
+        self.pos_end = (self.else_case or self.cases[len(self.cases) - 1][0]).pos_end
 
 
 #####################
@@ -397,7 +411,7 @@ class Parser:
         self.tok_idx = -1
         self.advance()
 
-    def advance(self):
+    def advance(self, ):
         self.tok_idx += 1
         if self.tok_idx < len(self.tokens):
             self.current_tok = self.tokens[self.tok_idx]
@@ -415,6 +429,69 @@ class Parser:
         return res
 
     ##################################################
+
+    def if_expr(self):
+        res = ParseResult()
+        cases = []
+        else_case = None
+
+        # if can't IF keyword
+        if not self.current_tok.matches(TT_KEYWORD, 'IF'):
+            return res.failure(InvalidSyntaxError(
+                self.current_tok.pos_start, self.current_tok.pos_end,
+                f"Expected 'IF'"
+            ))
+
+        res.register_advancement()
+        self.advance()
+
+        # if it's IF statement than
+        condition = res.register(self.expr())
+        if res.error: return res
+
+        if not self.current_tok.matches(TT_KEYWORD, 'THEN'):
+            return res.failure(InvalidSyntaxError(
+                self.current_tok.pos_start, self.current_tok.pos_end,
+                f"Expected 'THEN'"
+            ))
+        res.register_advancement()
+        self.advance()
+
+        expr = res.register(self.expr())
+        if res.error: return res
+        # appending to the case condition and expression witch b evaluated if cond is true
+        cases.append((condition, expr))
+
+        # locking for *(0 or more ELIF keyword)
+        while self.current_tok.matches(TT_KEYWORD, 'ELIF'):
+            res.register_advancement()
+            self.advance()
+
+            condition = res.register(self.expr())
+            if res.error: return res
+
+            if not self.current_tok.matches(TT_KEYWORD, 'THEN'):
+                return res.failure(InvalidSyntaxError(
+                    self.current_tok.pos_start, self.current_tok.pos_end,
+                    f"Expected 'THEN'"
+                ))
+
+            res.register_advancement()
+            self.advance()
+
+            expr = res.register(self.expr())
+            if res.error: return res
+            cases.append((condition, expr))
+        # finaly we must locking if  ELSE keyword
+        if self.current_tok.matches(TT_KEYWORD, 'ELSE'):
+            res.register_advancement()
+            self.advance()
+
+            else_case = res.register(self.expr())
+            if res.error: return res
+
+        return res.success(IfNode(cases, else_case))
+
     def atom(self):
         res = ParseResult()
         tok = self.current_tok
@@ -440,6 +517,12 @@ class Parser:
                 return res.failure(InvalidSyntaxError(
                     self.current_tok.pos_start, self.current_tok.pos_end, "Expected ')'"
                 ))
+        # locking for IF keyword
+        elif tok.matches(TT_KEYWORD, 'IF'):
+            if_expr = res.register(self.if_expr())
+            if res.error: return res
+            return res.success(if_expr)
+
         return res.failure(InvalidSyntaxError(
             tok.pos_start, tok.pos_end,
             "Expected int , float, identifier, '+' , '-' or '(' "
@@ -470,51 +553,52 @@ class Parser:
     def comp_expr(self):
         res = ParseResult()
 
-        if self.current_tok.matches(TT_KEYWORD, 'NOT'):  # if current tok is NOT
+        if self.current_tok.matches(TT_KEYWORD, 'NOT'):
             op_tok = self.current_tok
             res.register_advancement()
             self.advance()
 
-            node = res.register(self.comp_expr())  # after not keyword need entire comp expression
+            node = res.register(self.comp_expr())
             if res.error: return res
             return res.success(UnaryOpNode(op_tok, node))
 
-        # if isn't a NOT Keyword than know that need look for the comp keywords(EE,LT,GT,LTE,GTE)
         node = res.register(self.bin_op(self.arith_expr, (TT_EE, TT_NE, TT_LT, TT_GT, TT_LTEQ, TT_GTEQ)))
+
         if res.error:
             return res.failure(InvalidSyntaxError(
                 self.current_tok.pos_start, self.current_tok.pos_end,
-                "Expected int , float, identifier, '+' , '-', '(' 'NOT'"
+                "Expected int, float, identifier, '+', '-', '(' or 'NOT'"
             ))
 
         return res.success(node)
 
     def expr(self):
         res = ParseResult()
+
         if self.current_tok.matches(TT_KEYWORD, 'VAR') or self.current_tok.matches(TT_KEYWORD, 'LET'):  # locking for
             # the new role if var match to keyword
             res.register_advancement()
             self.advance()
 
             # locking for identifier that is variable name
-            if self.current_tok.type is not TT_IDENTIFIER:
+            if self.current_tok.type != TT_IDENTIFIER:
                 return res.failure(InvalidSyntaxError(
                     self.current_tok.pos_start, self.current_tok.pos_end,
                     "Expected identifier"
                 ))
+
             # but if is identifier
             var_name = self.current_tok
             res.register_advancement()
             self.advance()
 
             # locking for equal
-            if self.current_tok.type is not TT_EQ:
+            if self.current_tok.type != TT_EQ:
                 return res.failure(InvalidSyntaxError(
                     self.current_tok.pos_start, self.current_tok.pos_end,
                     "Expected '='"
                 ))
 
-            # but if it's equal
             res.register_advancement()
             self.advance()
             # assign expr to the new expr
@@ -522,31 +606,35 @@ class Parser:
             if res.error: return res
             # but if its success we gonna return var node
             return res.success(VarAssignNode(var_name, expr))
-
         # but if is not a variable its return bin operation
         node = res.register(self.bin_op(self.comp_expr, ((TT_KEYWORD, 'AND'), (TT_KEYWORD, 'OR'))))
+
         if res.error:
             return res.failure(InvalidSyntaxError(
                 self.current_tok.pos_start, self.current_tok.pos_end,
-                "Expected VAR or LET, int , float, identifier, '+' , '-' ,'(' or 'NOT' "
+                "Expected 'VAR', int, float, identifier, '+', '-', '(' or 'NOT'"
             ))
 
         return res.success(node)
 
+    ###################################
+
     def bin_op(self, func_a, ops, func_b=None):
         if func_b == None:
             func_b = func_a
+
         res = ParseResult()
         left = res.register(func_a())
         if res.error: return res
 
-        while self.current_tok.type in ops:
+        while self.current_tok.type in ops or (self.current_tok.type, self.current_tok.value) in ops:
             op_tok = self.current_tok
             res.register_advancement()
             self.advance()
             right = res.register(func_b())
             if res.error: return res
             left = BinOpNode(left, op_tok, right)
+
         return res.success(left)
 
 
@@ -640,7 +728,7 @@ class Number:  # storing number class
         if isinstance(other, Number):
             return Number(int(self.value <= other.value)).set_context(self.context), None
 
-    def get_comparison_lte(self, other):
+    def get_comparison_gte(self, other):
         if isinstance(other, Number):
             return Number(int(self.value >= other.value)).set_context(self.context), None
 
@@ -652,7 +740,7 @@ class Number:  # storing number class
         if isinstance(other, Number):
             return Number(int(self.value or other.value)).set_context(self.context), None
 
-    def notted(self):  # notted method verify if the value is false it will return 1 otherwise 0 (1-> true, 0-> false)
+    def notted(self):
         return Number(1 if self.value == 0 else 0).set_context(self.context), None
 
     def copy(self):
@@ -661,8 +749,11 @@ class Number:  # storing number class
         copy.set_context(self.context)
         return copy
 
+    def is_true(self):
+        return self.value != 0
+
     def __repr__(self):
-        return str(self.value)  # convert to string
+        return str(self.value)
 
 
 ######################
@@ -790,7 +881,7 @@ class Interpreter:
 
     def visit_UnaryOpNode(self, node, context):
         res = RTResult()
-        number = res.register(self.visit(node.node, context))  # child node
+        number = res.register(self.visit(node.node, context))
         if res.error: return res
 
         error = None
@@ -804,6 +895,25 @@ class Interpreter:
             return res.failure(error)
         else:
             return res.success(number.set_pos(node.pos_start, node.pos_end))
+
+    def visit_IfNode(self, node, context):
+        res = RTResult()
+
+        for condition, expr in node.cases:  # walk in every condition and expression in cases
+            condition_value = res.register(self.visit(condition, context))
+            if res.error: return res
+
+            if condition_value.is_true():  # if the condition value is true (condition validition)
+                expr_value = res.register(self.visit(expr, context))  # get the expression
+                if res.error: return res
+                return res.success(expr_value)
+
+        if node.else_case:  # if ELSE keyword case
+            else_value = res.register(self.visit(node.else_case, context))
+            if res.error: return res
+            return res.success(else_value)
+
+        return res.success(None)  # if else condition is not used nd IF condition is false no value will b return
 
 
 #######################################
