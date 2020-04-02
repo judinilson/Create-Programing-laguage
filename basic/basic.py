@@ -298,19 +298,24 @@ class ParseResult:
     def __init__(self):
         self.error = None
         self.node = None
+        self.advance_count = 0
+
+    def register_advancement(self):
+        self.advance_count += 1
 
     def register(self, res):
-        if isinstance(res, ParseResult):
-            if res.error: self.error = res.error
-            return res.node
-        return res
+        self.advance_count += res.advance_count
+        if res.error: self.error = res.error
+        return res.node
 
     def success(self, node):
         self.node = node
         return self
 
     def failure(self, error):
-        self.error = error
+        # should override(when should overrid or not when hvent advanced since
+        if not self.error or self.advance_count == 0:
+            self.error = error
         return self
 
 
@@ -347,17 +352,21 @@ class Parser:
         tok = self.current_tok
 
         if tok.type in (TT_INT, TT_FLOAT):
-            res.register(self.advance())
+            res.register_advancement()
+            self.advance()
             return res.success(NumberNode(tok))
         elif tok.type == TT_IDENTIFIER:  # verifying if is var_name(identifier)
-            res.register(self.advance())
+            res.register_advancement()
+            self.advance()
             return res.success(VarAccessNode(tok))
         elif tok.type == TT_LPAREN:  # verifying if is left parenthese
-            res.register(self.advance())
+            res.register_advancement()
+            self.advance()
             expr = res.register(self.expr())
             if res.error: return res
             if self.current_tok.type == TT_RPAREN:  # verifying if is right parenthese
-                res.register(self.advance())
+                res.register_advancement()
+                self.advance()
                 return res.success(expr)
             else:  # if not parenthese on right call failure invalid syntax
                 return res.failure(InvalidSyntaxError(
@@ -365,7 +374,7 @@ class Parser:
                 ))
         return res.failure(InvalidSyntaxError(
             tok.pos_start, tok.pos_end,
-            "Expected int , float, '+' , '-' or '(' "
+            "Expected int , float, identifier, '+' , '-' or '(' "
         ))
 
     def power(self):
@@ -376,7 +385,8 @@ class Parser:
         tok = self.current_tok
 
         if tok.type in (TT_PLUS, TT_MINUS):
-            res.register(self.advance())
+            res.register_advancement()
+            self.advance()
             factor = res.register(self.factor())  # call factor recursively
             if res.error: return res
             return res.success(UnaryOpNode(tok, factor))
@@ -389,7 +399,8 @@ class Parser:
     def expr(self):
         res = ParseResult()
         if self.current_tok.matches(TT_KEYWORD, 'VAR'):  # locking for the new role if var match to keyword
-            res.register(self.advance())
+            res.register_advancement()
+            self.advance()
 
             # locking for identifier that is variable name
             if self.current_tok.type is not TT_IDENTIFIER:
@@ -399,7 +410,8 @@ class Parser:
                 ))
             # but if is identifier
             var_name = self.current_tok
-            res.register(self.advance())
+            res.register_advancement()
+            self.advance()
 
             # locking for equal
             if self.current_tok.type is not TT_EQ:
@@ -409,7 +421,8 @@ class Parser:
                 ))
 
             # but if it's equal
-            res.register(self.advance())
+            res.register_advancement()
+            self.advance()
             # assign expr to the new expr
             expr = res.register(self.expr())
             if res.error: return res
@@ -417,7 +430,14 @@ class Parser:
             return res.success(VarAssignNode(var_name, expr))
 
         # but if is not a variable its return bin operation
-        return self.bin_op(self.term, (TT_PLUS, TT_MINUS))
+        node = res.register(self.bin_op(self.term, (TT_PLUS, TT_MINUS)))
+        if res.error:
+            return res.failure(InvalidSyntaxError(
+                self.current_tok.pos_start, self.current_tok.pos_end,
+                "Expected VAR, int , float, identifier, '+' , '-' or '(' "
+            ))
+
+        return res.success(node)
 
     def bin_op(self, func_a, ops, func_b=None):
         if func_b == None:
@@ -428,7 +448,8 @@ class Parser:
 
         while self.current_tok.type in ops:
             op_tok = self.current_tok
-            res.register(self.advance())
+            res.register_advancement()
+            self.advance()
             right = res.register(func_b())
             if res.error: return res
             left = BinOpNode(left, op_tok, right)
@@ -505,6 +526,12 @@ class Number:  # storing number class
             return Number(self.value ** other.value).set_context(
                 self.context), None
 
+    def copy(self):
+        copy = Number(self.value)
+        copy.set_pos(self.pos_start, self.pos_end)
+        copy.set_context(self.context)
+        return copy
+
     def __repr__(self):
         return str(self.value)  # convert to string
 
@@ -580,6 +607,8 @@ class Interpreter:
                 f"'{var_name}' is not defined",
                 context
             ))
+        # find var position and set to the var access node position
+        value = value.copy().set_pos(node.pos_start, node.pos_end)
         return res.success(value)
 
     def visit_VarAssignNode(self, node, context):
