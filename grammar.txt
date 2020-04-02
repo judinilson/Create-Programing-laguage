@@ -1,12 +1,19 @@
-expr  : term ((PLUS|MINUS) term)*
+expr        : KEYWORD: VAR IDENTIFIER EQ expr                                       VAR i = 0
+            : comp-expr ((KEYWORD: AND| KEYWORD:OR) comp-expr)*                     (4 == 4) AND (5 < 3)
 
-term  : factor ((MUL|DIV)) factor)*
+comp-expr   : NOT comp-expr                                                         NOT 1 == 2
+            : arith-expr ((EE|LT|GT|LTE|GTE) arith-expr)*                           4 >= 4
 
-factor : (PLUS|MINUS) power
 
-power  : atom (POW factor)*
+arith-expr  : term ((PLUS|MINUS) term)*                                             (5 * 9) + 4
 
-atom    : INT|FLOAT|IDENTIFIER
-        : LPAREN expr RPAREN
+term        : factor ((MUL|DIV)) factor)*                                           5*4/4
+
+factor      : (PLUS|MINUS) power                                                    4 + 5
+
+power       : atom (POW factor)*                                                    3 ^ 5
+
+atom        : INT|FLOAT|IDENTIFIER
+            : LPAREN expr RPAREN                                                    (5 + 4)
 
 
