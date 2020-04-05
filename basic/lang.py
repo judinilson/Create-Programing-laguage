@@ -769,6 +769,7 @@ class Parser:
 
         return res.success(WhileNode(condition, body))
 
+
     def power(self):
         return self.bin_op(self.call, (TT_POW,), self.factor)
 
@@ -1266,6 +1267,11 @@ class Number(Value):
         return str(self.value)
 
 
+Number.null = Number(0)
+Number.false = Number(0)
+Number.true = Number(1)
+
+
 class String(Value):
     def __init__(self, value):
         super().__init__()
@@ -1665,9 +1671,9 @@ class Interpreter:
 #######################################
 
 global_symbol_table = SymbolTable()
-global_symbol_table.set("NULL", Number(0))
-global_symbol_table.set("FALSE", Number(0))
-global_symbol_table.set("TRUE", Number(1))
+global_symbol_table.set("NULL", Number.null)
+global_symbol_table.set("FALSE", Number.false)
+global_symbol_table.set("TRUE", Number.true)
 
 
 def run(fn, text):
