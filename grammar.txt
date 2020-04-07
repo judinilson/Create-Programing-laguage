@@ -1,4 +1,9 @@
-statements  : NEWLINE* expr(NEWLINE + expr)*
+statements  : NEWLINE* statement(NEWLINE + statement)*
+
+statement   : KEYWORD: RETURN expr?
+            : KEYWORD: CONTINUE
+            : KEYWORD: BREAK
+            : expr
 
 expr        : KEYWORD: VAR IDENTIFIER EQ expr                                       VAR i = 0
             : comp-expr ((KEYWORD: AND| KEYWORD:OR) comp-expr)*                     (4 == 4) AND (5 < 3)
@@ -28,23 +33,23 @@ atom        : INT|FLOAT|STRING|IDENTIFIER
 list-expr   : LSQUARE (expr (COMMA expr)*)?) RSQUARE
 
 if-expr     : KEYWORD: IF expr KEYWORD: THEN
-              (expr if-expr-b | if-expr-c ?)
+              (statement if-expr-b | if-expr-c ?)
               | (NEWLINE Statements KEYWORD:END | if-expr-b | if-expr-c)
 
 
 if-expr-b   : KEYWORD: ELIF expr KEYWORD: THEN
-              (expr if-expr-b | if-expr-c ?)
+              (statement if-expr-b | if-expr-c ?)
               | (NEWLINE Statements KEYWORD:END | if-expr-b | if-expr-c)
 
 
 if-expr-c   : KEYWORD: ELSE
-                expr
+                statement
               | (NEWLINE Statements KEYWORD:END)
 
 
 for-expr    : KEYWORD:FOR IDENTIFIER EQ expr KEYWORD:TO expr
               (KEYWORD:STEP expr)? KEYWORD:THEN
-                expr
+                statement
               | (NEWLINE Statements KEYWORD:END)
 
 
