@@ -1904,7 +1904,7 @@ class BuiltInFunction(BaseFunction):
 
         if not isinstance(listB, List):
             return RTResult().failure(RTError(
-                "First argument must to be list",
+                "Second argument must to be list",
                 exec_ctx
             ))
 

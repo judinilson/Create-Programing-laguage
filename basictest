@@ -1,0 +1,64 @@
+
+
+PRINT("HELLO WORLD")
+
+VAR start = 0
+VAR end = 10
+
+VAR new_elements = [1,2,3,4,5]
+PRINT(start)
+PRINT(new_elements)
+PRINT(new_elements+5)
+APPEND(new_elements,6)
+PRINT(LEN(new_elements))
+PRINT(new_elements)
+
+# 1 mean true , 0 mean false
+PRINT(IS_LIST(new_elements))
+# pop 2 element
+POP(new_elements,1)
+PRINT(new_elements)
+
+VAR elements = [23,43,33,53,63]
+EXTEND(new_elements,elements)
+PRINT(new_elements)
+
+PRINT("===================================")
+VAR new_arr = [1,2,3,32,2,5,9]
+VAR arr = [44,55,66,77,33]
+
+# if statements
+
+IF LEN(new_arr) < LEN(arr) THEN
+    APPEND(new_arr,22)
+    PRINT(LEN(new_arr))
+
+ELIF LEN(new_arr) == LEN(arr) THEN
+    EXTEND(new_arr,arr)
+    PRINT(new_arr)
+
+ELSE
+     PRINT(new_arr)
+END
+
+
+# while expression
+PRINT("===================================")
+VAR i = 0
+WHILE i != 10 THEN
+     APPEND(new_arr,i)
+     VAR i = i + 1
+END
+
+ PRINT(new_arr)
+
+
+ # for expression
+PRINT("===================================")
+VAR len = LEN(new_arr)
+VAR response = "I'AM A NEW THING "
+
+    FOR i = 0 TO len THEN
+       PRINT(response)
+    END
+
